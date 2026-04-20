@@ -1,0 +1,130 @@
+#include <ESP8266WiFi.h>
+#include <DNSServer.h>
+#include <ESP8266WebServer.h>
+
+// Konfigurasi Pin
+int relayPins[8] = {D0, D1, D2, D3, D4, D5, D6, D7};
+bool relayStatus[8] = {false, false, false, false, false, false, false, false};
+#define PIN_BUZZER D8
+#define PIN_RAMAH 3 
+#define PIN_GALAK 1 
+
+const byte DNS_PORT = 53;
+IPAddress apIP(192, 168, 4, 1);
+DNSServer dnsServer;
+ESP8266WebServer server(80);
+
+// Fungsi Bunyi Buzzer
+void bip() {
+  digitalWrite(PIN_BUZZER, HIGH);
+  delay(100);
+  digitalWrite(PIN_BUZZER, LOW);
+}
+
+String getHTML() {
+  String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1, user-scalable=no'>";
+  html += "<style>body{font-family:sans-serif; background:#01080f; color:#00fbff; text-align:center; padding:15px;}";
+  html += ".chat-box{background:rgba(0,251,255,0.05); border:1px solid #00fbff; padding:20px; border-radius:15px; min-height:80px; margin-bottom:15px; box-shadow:0 0 10px #00fbff;}";
+  html += "input{width:55%; padding:12px; border-radius:20px; border:1px solid #00fbff; background:transparent; color:white; outline:none;}";
+  html += ".btn{background:#00fbff; color:#01080f; border:none; padding:12px 18px; border-radius:20px; font-weight:bold; cursor:pointer;}";
+  html += ".btn-mic{background:#112222; color:#00fbff; border-radius:50%; width:48px; height:48px; font-size:20px; vertical-align:middle; border:1px solid #00fbff;}";
+  html += ".grid{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:20px;}";
+  html += ".block{background:rgba(255,255,255,0.05); border:1.5px solid #00fbff; padding:15px; border-radius:10px; font-weight:bold;}";
+  html += "</style></head><body>";
+  html += "<h2>JARVIS AI</h2><div class='chat-box' id='resp'>Siap melayani, Tuan Uta.</div>";
+  html += "<input type='text' id='cmd' placeholder='Tanya math atau perintah...'><button class='btn' onclick='send()'>KIRIM</button>";
+  html += "<button class='btn-mic' onclick='start()'>&#127897;</button>";
+  html += "<div class='grid'>";
+  for(int i=0; i<8; i++) html += "<div class='block' onclick=\"b(" + String(i) + ")\">RELAY " + String(i+1) + "</div>";
+  html += "</div><script>";
+  html += "function u(t){document.getElementById('resp').innerHTML=t;}";
+  html += "function send(){var v=document.getElementById('cmd').value; if(v){fetch('/chat?msg='+v).then(r=>r.text()).then(d=>u(d)); document.getElementById('cmd').value='';}}";
+  html += "function b(id){fetch('/relay?id='+id).then(r=>r.text()).then(d=>u(d));}";
+  html += "function start(){if('webkitSpeechRecognition' in window){var r=new webkitSpeechRecognition(); r.lang='id-ID'; r.onresult=(e)=>{var t=e.results[0][0].transcript; document.getElementById('cmd').value=t; send();}; r.start();}}";
+  html += "</script></body></html>";
+  return html;
+}
+
+String processAI(String msg) {
+  msg.toLowerCase();
+  bool ramah = (digitalRead(PIN_RAMAH) == LOW);
+  bool galak = (digitalRead(PIN_GALAK) == LOW);
+  bip(); // Buzzer menyala setiap ada perintah masuk
+
+  // --- ENGINE MATEMATIKA OTOMATIS ---
+  float angka1, angka2, hasil = 0;
+  char oper;
+  bool isMath = false;
+
+  if (msg.indexOf("+") > 0) { sscanf(msg.c_str(), "%f + %f", &angka1, &angka2); hasil = angka1 + angka2; isMath = true; }
+  else if (msg.indexOf("-") > 0) { sscanf(msg.c_str(), "%f - %f", &angka1, &angka2); hasil = angka1 - angka2; isMath = true; }
+  else if (msg.indexOf("*") > 0 || msg.indexOf("x") > 0) { 
+    if(msg.indexOf("*") > 0) sscanf(msg.c_str(), "%f * %f", &angka1, &angka2);
+    else sscanf(msg.c_str(), "%f x %f", &angka1, &angka2);
+    hasil = angka1 * angka2; isMath = true; 
+  }
+  else if (msg.indexOf("/") > 0 || msg.indexOf("bagi") > 0) { 
+    if(msg.indexOf("/") > 0) sscanf(msg.c_str(), "%f / %f", &angka1, &angka2);
+    else sscanf(msg.c_str(), "%f bagi %f", &angka1, &angka2);
+    if(angka2 != 0) { hasil = angka1 / angka2; isMath = true; } else return "Kesalahan: Pembagian nol.";
+  }
+  else if (msg.indexOf("^") > 0 || msg.indexOf("pangkat") > 0) {
+     if(msg.indexOf("^") > 0) sscanf(msg.c_str(), "%f ^ %f", &angka1, &angka2);
+     else sscanf(msg.c_str(), "%f pangkat %f", &angka1, &angka2);
+     hasil = pow(angka1, angka2); isMath = true;
+  }
+
+  if(isMath) return "Hasil perhitungan: " + String(hasil);
+
+  // --- FITUR SEBELUMNYA ---
+  if (msg.indexOf("apa kabar") >= 0) return ramah ? "Sangat baik, Tuan Uta!" : "Sistem panas, jangan ganggu.";
+  if (msg.indexOf("siapa kamu") >= 0) return "Saya Jarvis, asisten pribadi Uta.";
+  if (msg.indexOf("developer") >= 0 || msg.indexOf("pencipta") >= 0) return "Developer saya adalah Tuan Uta.";
+
+  // Kontrol Relay
+  for(int i=0; i<8; i++) {
+    if (msg.indexOf("nyalakan unit " + String(i+1)) >= 0) {
+      digitalWrite(relayPins[i], LOW); relayStatus[i]=true;
+      return "Unit " + String(i+1) + " AKTIF.";
+    }
+    if (msg.indexOf("matikan unit " + String(i+1)) >= 0) {
+      digitalWrite(relayPins[i], HIGH); relayStatus[i]=false;
+      return "Unit " + String(i+1) + " MATI.";
+    }
+  }
+
+  if (msg.indexOf("matikan semua") >= 0) {
+    for(int i=0; i<8; i++){ digitalWrite(relayPins[i], HIGH); relayStatus[i]=false; }
+    return "Semua sistem mati.";
+  }
+
+  return "Perintah tidak dikenali, Tuan Uta.";
+}
+
+void setup() {
+  pinMode(PIN_BUZZER, OUTPUT);
+  pinMode(PIN_RAMAH, INPUT_PULLUP);
+  pinMode(PIN_GALAK, INPUT_PULLUP);
+  for(int i=0; i<8; i++) { pinMode(relayPins[i], OUTPUT); digitalWrite(relayPins[i], HIGH); }
+  
+  WiFi.mode(WIFI_AP);
+  WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
+  WiFi.softAP("JARVIS"); 
+  dnsServer.start(DNS_PORT, "*", apIP);
+  
+  server.on("/", []() { server.send(200, "text/html", getHTML()); });
+  server.on("/chat", []() { server.send(200, "text/plain", processAI(server.arg("msg"))); });
+  server.on("/relay", []() {
+    int id = server.arg("id").toInt();
+    bip();
+    relayStatus[id]=!relayStatus[id];
+    digitalWrite(relayPins[id], relayStatus[id]?LOW:HIGH);
+    server.send(200, "text/plain", "OK.");
+  });
+  server.onNotFound([]() { server.sendHeader("Location", String("http://") + apIP.toString(), true); server.send(302, "text/plain", ""); });
+  server.begin();
+  bip(); // Bip tanda sistem siap
+}
+
+void loop() { dnsServer.processNextRequest(); server.handleClient(); }
