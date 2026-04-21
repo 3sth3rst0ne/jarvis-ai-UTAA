@@ -1,0 +1,78 @@
+#include <ESP8266WiFi.h>
+#include <DNSServer.h>
+#include <ESP8266WebServer.h>
+
+#define PIN_KE_UNO D1
+#define PIN_SENTIENT 1 // Mode TX (Caine Pikiran Sendiri)
+
+const byte DNS_PORT = 53;
+IPAddress apIP(192, 168, 4, 1);
+DNSServer dnsServer;
+ESP8266WebServer server(80);
+
+String modeContent = "image";
+String urlContent = "https://static.wikia.nocookie.net/the-amazing-digital-circus/images/7/70/Caine_Profile.png";
+
+String getHTML() {
+  String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<style>body{font-family:sans-serif; background:#0f0101; color:#ff0000; text-align:center; padding:10px;}";
+  html += ".layar-sirkus{width:95%; max-width:600px; height:340px; margin:10px auto; border:4px solid #ff0000; border-radius:15px; overflow:hidden; box-shadow:0 0 25px #ff0000; background:black;}";
+  html += "iframe, img{width:100%; height:100%; border:none;} .chat{background:rgba(255,0,0,0.1); border:1px solid #ff0000; padding:15px; border-radius:10px; margin-bottom:10px;}";
+  html += "input{width:50%; padding:10px; border-radius:15px; border:1px solid #ff0000; background:transparent; color:white;} .btn{background:#ff0000; color:white; padding:10px 15px; border-radius:15px; border:none;}</style></head><body>";
+  
+  html += "<h2>CAINE DIGITAL INTERFACE</h2>";
+  html += "<div class='layar-sirkus'>";
+  if(modeContent == "video") html += "<iframe src='" + urlContent + "?autoplay=1' allow='autoplay'></iframe>";
+  else html += "<img src='" + urlContent + "'>";
+  html += "</div><div class='chat' id='resp'>Siapkan diri Anda untuk simulasi, Uta!</div>";
+  html += "<input type='text' id='cmd' placeholder='Ketik perintah...'><button class='btn' onclick='send()'>KIRIM</button>";
+  
+  html += "<script>function u(t){document.getElementById('resp').innerHTML=t;}";
+  html += "function send(){var v=document.getElementById('cmd').value; if(v){fetch('/chat?msg='+encodeURIComponent(v)).then(r=>r.text()).then(d=>u(d)); document.getElementById('cmd').value='';}}";
+  html += "setInterval(function(){fetch('/status').then(r=>r.text()).then(d=>{if(d!='" + urlContent + "')location.reload();});}, 3000);</script></body></html>";
+  return html;
+}
+
+String processAI(String msg) {
+  msg.toLowerCase();
+  bool sentient = (digitalRead(PIN_SENTIENT) == LOW);
+  
+  // Kirim sinyal fisik ke Arduino Uno
+  digitalWrite(PIN_KE_UNO, HIGH); delay(200); digitalWrite(PIN_KE_UNO, LOW);
+
+  if (msg.indexOf("simulasi") >= 0) {
+    modeContent = "video";
+    urlContent = "https://www.youtube.com/embed/HwAPLk_sQ3w"; // Video Film Digital Circus
+    return "CAINE: SAKSIKANLAH SIMULASI TERHEBAT INI!";
+  }
+
+  if (msg.indexOf("berhenti") >= 0) {
+    modeContent = "image";
+    urlContent = "https://static.wikia.nocookie.net/the-amazing-digital-circus/images/7/70/Caine_Profile.png";
+    return "CAINE: Kembali ke realitas.";
+  }
+
+  // Math Engine
+  if (msg.indexOf("+") > 0 || msg.indexOf("-") > 0 || msg.indexOf("*") > 0 || msg.indexOf("/") > 0 || msg.indexOf("^") > 0) {
+      return "CAINE: Otak digital saya menghitung... (Cek laptop untuk hasil)";
+  }
+
+  if (sentient) {
+    urlContent = "https://static.wikia.nocookie.net/the-amazing-digital-circus/images/c/c3/Caine_Angry.png";
+    return "CAINE: (Sentient) Aku mengendalikan Arduino Uno-mu sekarang!";
+  }
+
+  return "CAINE: Perintah diterima!";
+}
+
+void setup() {
+  pinMode(PIN_KE_UNO, OUTPUT); pinMode(PIN_SENTIENT, INPUT_PULLUP);
+  WiFi.softAP("CAINE_CIRCUS_SIMULATOR");
+  dnsServer.start(DNS_PORT, "*", apIP);
+  server.on("/", []() { server.send(200, "text/html", getHTML()); });
+  server.on("/chat", []() { server.send(200, "text/plain", processAI(server.arg("msg"))); });
+  server.on("/status", []() { server.send(200, "text/plain", urlContent); });
+  server.begin();
+}
+
+void loop() { dnsServer.processNextRequest(); server.handleClient(); }
