@@ -1,0 +1,35 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+
+const char* ssid = "KONTROL-SENJATA-MINI";
+const char* pass = "SISTEM-BAHAYA";
+
+const int pinRelay = 12; // D6
+ESP8266WebServer server(80);
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(pinRelay, OUTPUT);
+  digitalWrite(pinRelay, HIGH); // Mati di awal (Active Low)
+
+  WiFi.begin(ssid, pass);
+  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
+  
+  // Agar Jarvis mendapatkan IP 192.168.4.2 secara konsisten
+  Serial.println("Jarvis Online!");
+  
+  server.on("/jarvis/fire", []() {
+    digitalWrite(pinRelay, LOW); // ON
+    delay(1000); 
+    digitalWrite(pinRelay, HIGH); // OFF
+    server.send(200, "text/plain", "Fired!");
+  });
+
+  // Izinkan request dari IP lain (CORS) agar tombol di NodeMCU 1 bisa bekerja
+  server.enableCORS(true); 
+  server.begin();
+}
+
+void loop() {
+  server.handleClient();
+}
